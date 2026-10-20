@@ -58,30 +58,39 @@ The build uses relative paths and hash routing, so `dist/` also works on any sta
 
 ## Connect to AI
 
-The Narrator's Cut can have an AI write your recaps. The AI runs on your own computer — any Windows PC with a decent graphics card, like a gaming laptop. When you tap **Write with AI**, the app sends that period's episodes to the AI on your computer, it writes the recap, and the recap comes back to the app and is saved on your phone. Nothing goes to a third party and there's nothing to pay for.
+The Narrator's Cut can have an AI write your recaps. The AI runs on your own computer — a Linux box (e.g. Ubuntu Server) or Windows PC with a decent graphics card, like a gaming laptop. When you tap **Write with AI**, the app sends that period's episodes to the AI on your computer, it writes the recap, and the recap comes back to the app and is saved on your phone. Nothing goes to a third party and there's nothing to pay for.
 
 **Setup (once, about 10 minutes):**
 
-1. Install **[Tailscale](https://tailscale.com/download)** on your phone and on the PC, and sign in to both with the same account. (Free. It gives the PC a private `https://` address your phone can reach from anywhere.)
-2. On the PC, open **PowerShell** and run:
+1. Install **[Tailscale](https://tailscale.com/download)** on your phone (and sign in). It's free, and gives the computer a private `https://` address your phone can reach from anywhere.
+2. On the computer, run the setup:
+
+   **Linux / Ubuntu Server** (in a terminal or over SSH):
+
+   ```bash
+   curl -fsSL https://raw.githubusercontent.com/Hudsoonvid/Rate-Days/main/ai/setup.sh | sudo bash
+   ```
+
+   **Windows** (in PowerShell; install Tailscale on the PC first):
 
    ```powershell
    irm https://raw.githubusercontent.com/Hudsoonvid/Rate-Days/main/ai/setup.ps1 | iex
    ```
 
-   It installs [Ollama](https://ollama.com), lets the RateDays site talk to it, downloads a good AI model (about 5 GB), and prints your **AI address** (also copied to the clipboard). If Tailscale asks you to turn on HTTPS, follow the link it shows and run the command again.
+   It installs [Ollama](https://ollama.com) (on Linux as a system service that starts on boot), lets the RateDays site talk to it, downloads a good AI model (about 5 GB) and prints your **AI address**. On Linux it also installs Tailscale and, the first time, prints a link to sign the machine in — open it on your phone and use the same account. If Tailscale asks you to turn on HTTPS, follow the link it shows and run the command again.
 3. On your phone: **Settings → Connect to AI** → paste the address → **Connect**. Connect sends the AI a real test request, so *Connected* means it answered.
 
 Then open the Narrator's Cut and tap **Write with AI**.
 
 Good to know:
 
-- The PC needs to be on and awake when you ask for a recap. Saved recaps stay on your phone.
+- The computer needs to be on and awake when you ask for a recap. Saved recaps stay on your phone.
+- On a Linux machine with an NVIDIA GPU, the setup warns you if the graphics driver is missing (fix: `sudo ubuntu-drivers install && sudo reboot`, then run the setup again) — without it the AI still works, just slowly.
 - The first recap after the PC wakes up takes longer while the model loads.
-- The app picks the model automatically from what's installed. Advanced: to use a different one, run `$env:RATEDAYS_MODEL = "qwen2.5:14b"` before the setup command. If you host the site somewhere other than `hudsoonvid.github.io`, set `$env:RATEDAYS_SITE` to its address first.
+- The app picks the model automatically from what's installed. Advanced: to use a different one, pass `RATEDAYS_MODEL` (Linux: `curl -fsSL …/setup.sh | sudo RATEDAYS_MODEL=qwen2.5:14b bash`; Windows: `$env:RATEDAYS_MODEL = "qwen2.5:14b"` first). If you host the site somewhere other than `hudsoonvid.github.io`, set `RATEDAYS_SITE` to its address the same way.
 - Any OpenAI-compatible server works (e.g. LM Studio with CORS enabled, behind `tailscale serve`).
 - Long periods (a whole semester or year) are sent as highlights plus monthly averages, so the AI stays fast.
-- **Couldn't reach the AI** → check the PC is on, Tailscale is connected on the phone, and Ollama is running (it starts with Windows). **403** → run the setup command again.
+- **Couldn't reach the AI** → check the computer is on, Tailscale is connected on the phone, and Ollama is running (Linux: `systemctl status ollama`; Windows: it starts with Windows). **403** → run the setup command again.
 
 ## How the numbers work
 
@@ -99,5 +108,5 @@ src/
   components/   shared UI and SVG charts
   screens/      one file per screen
 public/         PWA manifest, service worker, icons
-ai/             one-command Windows setup that turns a PC into the app's AI
+ai/             one-command setup (Linux and Windows) that turns a computer into the app's AI
 ```
