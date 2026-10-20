@@ -18,7 +18,7 @@ export interface RecapFacts {
   toughStreak: Streak;
 }
 
-/** What a recap card shows — produced either locally or by Claude. */
+/** What a recap card shows — written by the built-in narrator or by the AI. */
 export interface RecapContent {
   logline: string;
   best?: { title: string; when: string; line: string };
@@ -52,7 +52,7 @@ export function gatherFacts(data: AppData, period: Period): RecapFacts {
 
 // --- Local narrator -------------------------------------------------------
 // Deterministic prose built from the facts, so recaps work offline and
-// without an API key. Variety comes from a hash of the period key.
+// without connecting an AI. Variety comes from a hash of the period key.
 
 function hash(s: string): number {
   let h = 2166136261;

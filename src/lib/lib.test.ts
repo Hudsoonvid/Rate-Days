@@ -1,17 +1,20 @@
 import { describe, expect, it } from "vitest";
-import { addDays, episodeLabel, isoWeekNumber, startOfWeek, weekdayIndex } from "./dates";
+import { addDays, isoWeekNumber, startOfWeek, weekdayIndex } from "./dates";
 import { buildDemoData } from "./demo";
 import { commitmentResult, weekCount } from "./goals";
 import { tagImpact } from "./insights";
 import { gatherFacts, localRecap } from "./narrator";
+import { mixedContentWarning, normalizeServerUrl, pickModel } from "./localAi";
 import { periodContaining, shiftPeriod } from "./periods";
+import { buildPayload, parseRecapFields } from "./recapPrompt";
+import { DEFAULT_FORMAT, episodeLabel, episodeNumber, seasonOf, seasonsInYear, shiftSeason, storyYearOf, type Series } from "./seasons";
 import { fmtDelta, tierFor } from "./ratings";
 import { searchDays } from "./search";
 import {
   bestMonth, bestWeekday, consistency, genreShares, histogram, loggingStreak,
   longestStreak, personStats, rankByRating, sortedDays, tierDistribution, topDays,
 } from "./stats";
-import { emptyData, parseBackup, serializeBackup } from "./store";
+import { emptyData, normalizeFormat, normalizeSettings, parseBackup, premiereOf, serializeBackup } from "./store";
 import type { Day, Tag } from "./types";
 
 function day(date: string, rating: number, extra: Partial<Day> = {}): Day {
@@ -22,11 +25,10 @@ function byDate(days: Day[]) {
   return Object.fromEntries(days.map((d) => [d.date, d]));
 }
 
-describe("dates", () => {
-  it("labels episodes by month and day", () => {
-    expect(episodeLabel("2026-07-14")).toBe("S7 E14");
-  });
-  it("starts weeks on Monday", () => {
+const calendar = (premiere: string): Series => ({ format: DEFAULT_FORMAT, premiere });
+const school = (premiere: string): Series => ({ format: { ...DEFAULT_FORMAT, mode: "school" }, premiere });
+
+describe("dates", () => {  it("starts weeks on Monday", () => {
     expect(weekdayIndex("2026-10-19")).toBe(0); // a Monday
     expect(startOfWeek("2026-10-25")).toBe("2026-10-19");
   });
@@ -167,16 +169,83 @@ describe("goals", () => {
   });
 });
 
+describe("seasons", () => {
+  it("starts Season 1 on the first episode and counts months from there", () => {
+    const s = calendar("2026-10-19");
+    expect(episodeLabel("2026-10-19", s)).toBe("S1 E1");
+    expect(episodeLabel("2026-10-31", s)).toBe("S1 E13");
+    expect(episodeLabel("2026-11-01", s)).toBe("S2 E1");
+    expect(episodeLabel("2027-01-05", s)).toBe("S4 E5");
+    expect(episodeLabel("2027-10-05", s)).toBe("S13 E5");
+    expect(seasonOf("2026-12-24", s).name).toBe("December 2026");
+  });
+
+  it("numbers a January premiere like the calendar", () => {
+    expect(episodeLabel("2026-07-14", calendar("2026-01-01"))).toBe("S7 E14");
+  });
+
+  it("labels a back-filled day before the premiere as if the series started there", () => {
+    expect(episodeLabel("2026-10-10", calendar("2026-10-19"))).toBe("S1 E1");
+  });
+
+  it("splits a school year into Fall, Spring and Summer break", () => {
+    const s = school("2026-10-19");
+    expect(seasonOf("2026-10-19", s)).toMatchObject({ kind: "fall", name: "Fall 2026", number: 1, start: "2026-08-01", end: "2026-12-31", firstDay: "2026-10-19" });
+    expect(episodeLabel("2026-10-19", s)).toBe("S1 E1");
+    expect(seasonOf("2027-01-10", s)).toMatchObject({ kind: "spring", name: "Spring 2027", number: 2, end: "2027-05-31" });
+    expect(episodeNumber("2027-01-10", s)).toBe(10);
+    expect(seasonOf("2027-06-15", s)).toMatchObject({ kind: "summer", name: "Summer 2027", number: 3, end: "2027-07-31" });
+    expect(episodeLabel("2027-09-01", s)).toBe("S4 E32");
+  });
+
+  it("has no summer when spring runs into the start of fall", () => {
+    const s: Series = { format: { mode: "school", schoolStart: 6, springEnd: 5 }, premiere: "2026-09-01" };
+    expect(seasonOf("2027-06-30", s).kind).toBe("spring");
+    expect(seasonOf("2027-07-01", s)).toMatchObject({ kind: "fall", number: 3 });
+  });
+
+  it("groups story years by school year", () => {
+    const f = school("2026-10-19").format;
+    expect(storyYearOf("2027-03-01", f)).toMatchObject({ key: "2026-27", label: "2026–27", start: "2026-08-01", end: "2027-07-31" });
+    expect(storyYearOf("2026-07-31", f).label).toBe("2025–26");
+    expect(storyYearOf("2026-07-31", DEFAULT_FORMAT).label).toBe("2026");
+    expect(seasonsInYear(storyYearOf("2026-10-19", f), school("2026-10-19")).map((x) => x.name)).toEqual(["Fall 2026", "Spring 2027", "Summer 2027"]);
+  });
+
+  it("steps between seasons", () => {
+    const s = school("2026-10-19");
+    expect(shiftSeason(seasonOf("2026-10-19", s), 1, s).name).toBe("Spring 2027");
+    expect(shiftSeason(seasonOf("2026-10-19", s), -1, s)).toMatchObject({ name: "Summer 2026", number: 0 });
+  });
+
+  it("finds the premiere from the earliest episode", () => {
+    expect(premiereOf({ "2026-10-20": day("2026-10-20", 7), "2026-10-19": day("2026-10-19", 7) }, "2026-11-01")).toBe("2026-10-19");
+    expect(premiereOf({}, "2026-11-01")).toBe("2026-11-01");
+  });
+});
+
 describe("periods", () => {
+  const s = calendar("2026-01-01");
+
   it("steps weeks, seasons and years", () => {
-    const week = periodContaining("week", "2026-10-22");
+    const week = periodContaining("week", "2026-10-22", s);
     expect(week.start).toBe("2026-10-19");
     expect(week.end).toBe("2026-10-25");
     expect(shiftPeriod(week, -1).start).toBe("2026-10-12");
-    const season = periodContaining("season", "2026-02-10");
-    expect([season.start, season.end, season.title]).toEqual(["2026-02-01", "2026-02-28", "Season 2"]);
+    const season = periodContaining("season", "2026-02-10", s);
+    expect([season.start, season.end, season.title, season.subtitle]).toEqual(["2026-02-01", "2026-02-28", "Season 2", "February 2026"]);
+    expect(season.key).toBe("season:2026-02");
     expect(shiftPeriod(season, -2).start).toBe("2025-12-01");
-    expect(shiftPeriod(periodContaining("year", "2026-05-05"), 1).key).toBe("year:2027");
+    expect(shiftPeriod(periodContaining("year", "2026-05-05", s), 1).key).toBe("year:2027");
+  });
+
+  it("uses semesters and school years in school mode", () => {
+    const sc = school("2026-01-05");
+    const fall = periodContaining("season", "2026-09-10", sc);
+    expect([fall.key, fall.title, fall.noun]).toEqual(["season:fall-2026", "Season 3", "semester"]);
+    expect(fall.subtitle).toMatch(/^Fall 2026 · /);
+    expect(shiftPeriod(fall, -1).key).toBe("season:summer-2026");
+    expect(periodContaining("year", "2027-02-01", sc).title).toBe("2026–27");
   });
 });
 
@@ -212,7 +281,7 @@ describe("narrator", () => {
   const demo = buildDemoData("2026-10-19");
 
   it("writes a recap with best and worst episodes", () => {
-    const recap = localRecap(gatherFacts(demo, periodContaining("season", "2026-07-01")));
+    const recap = localRecap(gatherFacts(demo, periodContaining("season", "2026-07-01", calendar("2026-01-01"))));
     expect(recap.logline).toMatch(/^A season of /);
     expect(recap.best?.title).toBeTruthy();
     expect(recap.worst?.title).toBeTruthy();
@@ -221,7 +290,7 @@ describe("narrator", () => {
   });
 
   it("handles an empty period", () => {
-    const recap = localRecap(gatherFacts(demo, periodContaining("week", "2027-03-01")));
+    const recap = localRecap(gatherFacts(demo, periodContaining("week", "2027-03-01", calendar("2026-01-01"))));
     expect(recap.logline).toMatch(/hasn't aired/);
   });
 });
@@ -244,17 +313,72 @@ describe("search", () => {
 });
 
 describe("backups", () => {
-  it("round-trips data and never exports the API key", () => {
+  it("round-trips data but keeps device settings (the AI address) out of backups", () => {
     const demo = buildDemoData("2026-10-19");
-    demo.settings.apiKey = "sk-ant-secret";
+    demo.settings.localUrl = "https://my-pc.tail1234.ts.net";
+    demo.format = { ...demo.format, mode: "school" };
     const text = serializeBackup(demo);
-    expect(text).not.toContain("sk-ant-secret");
+    expect(text).not.toContain("tail1234");
     const restored = parseBackup(text);
     expect(Object.keys(restored.days).length).toBe(Object.keys(demo.days).length);
-    expect(restored.settings.apiKey).toBe("");
+    expect(restored.settings.localUrl).toBe("");
+    expect(restored.format.mode).toBe("school");
   });
 
   it("rejects files that are not backups", () => {
     expect(() => parseBackup(JSON.stringify({ hello: "world" }))).toThrow();
+  });
+});
+
+describe("AI narrator plumbing", () => {
+  const demo = buildDemoData("2026-10-19");
+  const series = calendar("2026-01-01");
+
+  it("sends every episode for short periods and only highlights for long ones", () => {
+    const month = gatherFacts(demo, periodContaining("season", "2026-07-01", series));
+    const short = buildPayload(demo, month, { noteLimit: 160, maxEpisodes: 35 });
+    expect((short.episodes as unknown[]).length).toBe(month.days.length);
+    const year = gatherFacts(demo, periodContaining("year", "2026-07-01", series));
+    const long = buildPayload(demo, year, { noteLimit: 160, maxEpisodes: 35 }) as Record<string, unknown>;
+    expect(long.episodes).toBeUndefined();
+    expect((long.highlight_episodes as unknown[]).length).toBeLessThanOrEqual(13);
+    expect(JSON.stringify(long).length).toBeLessThan(12_000);
+  });
+
+  it("reads JSON from chatty local-model replies", () => {
+    const reply = '<think>planning…</think>Sure! Here it is:\n```json\n{"logline":"A season of wins.","best_line":"x","worst_line":"","paragraphs":"One paragraph.","closing":"Bye"}\n```';
+    expect(parseRecapFields(reply)).toEqual({ logline: "A season of wins.", best_line: "x", worst_line: "", paragraphs: ["One paragraph."], closing: "Bye" });
+    expect(() => parseRecapFields("I can't do that.")).toThrow();
+  });
+
+  it("normalises server addresses", () => {
+    expect(normalizeServerUrl(" my-pc.tail1234.ts.net/ ")).toBe("https://my-pc.tail1234.ts.net");
+    expect(normalizeServerUrl("http://localhost:11434/v1")).toBe("http://localhost:11434");
+    expect(normalizeServerUrl("192.168.1.20:11434")).toBe("http://192.168.1.20:11434");
+  });
+
+  it("warns when an https page would call a plain-http server", () => {
+    expect(mixedContentWarning("http://192.168.1.20:11434", "https:")).toMatch(/https/);
+    expect(mixedContentWarning("http://localhost:11434", "https:")).toBeNull();
+    expect(mixedContentWarning("https://my-pc.tail1234.ts.net", "https:")).toBeNull();
+    expect(mixedContentWarning("http://192.168.1.20:11434", "http:")).toBeNull();
+  });
+});
+
+describe("settings migration", () => {
+  it("drops old fields (like an API key) and fills defaults", () => {
+    expect(normalizeSettings(undefined)).toEqual({ localUrl: "", localModel: "" });
+    expect(normalizeSettings({ apiKey: "sk-ant-x", localUrl: "https://pc.ts.net" } as never)).toEqual({ localUrl: "https://pc.ts.net", localModel: "" });
+    expect(normalizeFormat({ mode: "school", schoolStart: 2 } as never)).toEqual({ mode: "school", schoolStart: 7, springEnd: 4 });
+  });
+});
+
+describe("model choice", () => {
+  it("picks a good installed chat model on its own", () => {
+    expect(pickModel(["nomic-embed-text:latest", "phi3:mini", "llama3.1:8b"])).toBe("llama3.1:8b");
+    expect(pickModel(["qwen2.5:7b-instruct", "mistral:7b"])).toBe("qwen2.5:7b-instruct");
+    expect(pickModel(["some-custom-model"])).toBe("some-custom-model");
+    expect(pickModel(["nomic-embed-text"])).toBeNull();
+    expect(pickModel([])).toBeNull();
   });
 });

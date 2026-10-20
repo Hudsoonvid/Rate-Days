@@ -2,8 +2,33 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import * as db from "./db";
 import { buildDemoData } from "./demo";
 import { todayISO } from "./dates";
+import { DEFAULT_SETTINGS } from "./defaults";
 import { STARTER_TAGS } from "./presets";
-import type { AppData, Day, Goals, Person, Place, Profile, Recap, Settings, Tag } from "./types";
+import { DEFAULT_FORMAT, type Series } from "./seasons";
+import type { AppData, Day, Goals, Person, Place, Profile, Recap, SeriesFormat, Settings, Tag } from "./types";
+
+
+/** Fill in fields added after a user's data was first saved. */
+export function normalizeSettings(raw: Partial<Settings> | undefined): Settings {
+  // Keep only known fields (older versions also stored an API key; it's dropped here).
+  const { localUrl, localModel } = { ...DEFAULT_SETTINGS, ...(raw ?? {}) };
+  return { localUrl: String(localUrl ?? ""), localModel: String(localModel ?? "") };
+}
+
+export function normalizeFormat(raw: Partial<SeriesFormat> | undefined): SeriesFormat {
+  const f = { ...DEFAULT_FORMAT, ...(raw ?? {}) };
+  if (![6, 7, 8].includes(f.schoolStart)) f.schoolStart = DEFAULT_FORMAT.schoolStart;
+  if (![3, 4, 5].includes(f.springEnd)) f.springEnd = DEFAULT_FORMAT.springEnd;
+  if (f.mode !== "school") f.mode = "calendar";
+  return f;
+}
+
+/** The series starts on its earliest episode; before any exist, it starts today. */
+export function premiereOf(days: Record<string, Day>, today: string): string {
+  let first = "";
+  for (const date in days) if (!first || date < first) first = date;
+  return first || today;
+}
 
 export function emptyData(): AppData {
   return {
@@ -13,7 +38,8 @@ export function emptyData(): AppData {
     places: [],
     profile: { name: "", storyTitle: "My Story", tagline: "Every day is an episode." },
     goals: { selected: [], commitments: [] },
-    settings: { apiKey: "" },
+    settings: { ...DEFAULT_SETTINGS },
+    format: { ...DEFAULT_FORMAT },
     recaps: {},
     onboarded: false,
   };
@@ -51,8 +77,9 @@ export function parseBackup(json: string): AppData {
     places: Array.isArray(raw.places) ? raw.places : base.places,
     profile: { ...base.profile, ...(raw.profile ?? {}) },
     goals: { ...base.goals, ...(raw.goals ?? {}) },
-    // Never import someone else's API key from a shared backup.
+    // Settings are per-device (the AI address); never take them from a backup.
     settings: base.settings,
+    format: normalizeFormat(raw.format),
     recaps: raw.recaps && typeof raw.recaps === "object" ? raw.recaps : {},
     onboarded: true,
   };
@@ -68,6 +95,8 @@ interface Store {
   ready: boolean;
   persistent: boolean;
   today: string;
+  /** Season format plus premiere date: everything needed to label seasons and episodes. */
+  series: Series;
   saveDay: (day: Day) => void;
   removeDay: (date: string) => void;
   upsertPerson: (p: Person) => void;
@@ -76,6 +105,7 @@ interface Store {
   setProfile: (p: Profile) => void;
   setGoals: (g: Goals) => void;
   setSettings: (s: Settings) => void;
+  setFormat: (f: SeriesFormat) => void;
   saveRecap: (r: Recap) => void;
   finishOnboarding: (profile: Profile) => void;
   replaceAll: (data: AppData) => Promise<void>;
@@ -106,7 +136,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     (async () => {
       const [loaded, ok] = await Promise.all([db.loadAll().catch((): Partial<AppData> => ({})), db.isPersistent()]);
       if (cancelled) return;
-      setData((d) => ({ ...d, ...loaded, days: loaded.days ?? d.days }));
+      setData((d) => ({
+        ...d,
+        ...loaded,
+        days: loaded.days ?? d.days,
+        settings: normalizeSettings(loaded.settings),
+        format: normalizeFormat(loaded.format),
+      }));
       setPersistent(ok);
       setReady(true);
     })();
@@ -131,12 +167,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     if (key !== "days") void db.putMeta(key as Exclude<K, "days">, value as never);
   }, []);
 
+  const premiere = useMemo(() => premiereOf(data.days, today), [data.days, today]);
+  const series = useMemo<Series>(() => ({ format: data.format, premiere }), [data.format, premiere]);
+
   const store = useMemo<Store>(
     () => ({
       data,
       ready,
       persistent,
       today,
+      series,
       saveDay: (day) => {
         setData((d) => ({ ...d, days: { ...d.days, [day.date]: day } }));
         void db.putDay(day);
@@ -155,6 +195,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       setProfile: (p) => update("profile", p),
       setGoals: (g) => update("goals", g),
       setSettings: (s) => update("settings", s),
+      setFormat: (f) => update("format", f),
       saveRecap: (r) => update("recaps", { ...dataRef.current.recaps, [r.key]: r }),
       finishOnboarding: (profile) => {
         update("profile", profile);
@@ -167,6 +208,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       loadDemo: async () => {
         const demo = buildDemoData(todayISO());
         demo.settings = dataRef.current.settings;
+        demo.format = dataRef.current.format;
         setData(demo);
         await db.replaceAll(demo);
       },
@@ -176,7 +218,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         await db.replaceAll(fresh);
       },
     }),
-    [data, ready, persistent, today, update],
+    [data, ready, persistent, today, series, update],
   );
 
   return <StoreContext.Provider value={store}>{children}</StoreContext.Provider>;

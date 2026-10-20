@@ -2,12 +2,13 @@ import { ChevronRight, Clapperboard, Flag, MapPin, Sparkles, Star, Tags, Trendin
 import { useMemo, useState, type ReactNode } from "react";
 import { ColumnChart, LineChart } from "../components/charts";
 import { AppHeader, Empty, Pager, Segmented } from "../components/ui";
-import { episodeLabel, formatMonthDay, MONTHS, MONTHS_SHORT, WEEKDAYS, WEEKDAYS_SHORT, yearOf } from "../lib/dates";
+import { formatMonthDay, MONTHS, MONTHS_SHORT, WEEKDAYS, WEEKDAYS_SHORT } from "../lib/dates";
+import { episodeLabel, seasonOf, storyYearOf } from "../lib/seasons";
 import { GENRE_COLORS } from "../lib/presets";
 import { colorFor, fmt } from "../lib/ratings";
 import { navigate } from "../lib/router";
 import {
-  average, bestMonth, bestWeekday, byMonth, byWeekday, consistency, genreShares, histogram,
+  average, bestMonth, bestWeekday, inRange, byMonth, byWeekday, consistency, genreShares, histogram,
   loggingStreak, longestStreak, sortedDays, tierDistribution, topDays,
 } from "../lib/stats";
 import { useStore } from "../lib/store";
@@ -16,9 +17,9 @@ import type { Day } from "../lib/types";
 export function Stats() {
   const { data, today } = useStore();
   const [scope, setScope] = useState<"year" | "all">("year");
-  const year = yearOf(today);
+  const year = storyYearOf(today, data.format);
   const all = useMemo(() => sortedDays(data.days), [data.days]);
-  const days = useMemo(() => (scope === "year" ? all.filter((d) => yearOf(d.date) === year) : all), [all, scope, year]);
+  const days = useMemo(() => (scope === "year" ? inRange(all, year.start, year.end) : all), [all, scope, year.start, year.end]);
 
   return (
     <div className="app">
@@ -29,7 +30,7 @@ export function Stats() {
           value={scope}
           onChange={setScope}
           options={[
-            { value: "year", label: String(year) },
+            { value: "year", label: year.label },
             { value: "all", label: "All time" },
           ]}
         />
@@ -73,6 +74,7 @@ function NavRow({ icon, color, title, sub, to }: { icon: ReactNode; color: strin
 
 function StatsBody({ days, streak }: { days: Day[]; streak: number }) {
   const { data } = useStore();
+  const school = data.format.mode === "school";
   const month = bestMonth(days, 5) ?? bestMonth(days, 1);
   const weekday = bestWeekday(days);
   const cons = consistency(days);
@@ -188,7 +190,7 @@ function StatsBody({ days, streak }: { days: Day[]; streak: number }) {
 
       {months.length > 1 && (
         <div className="card" style={{ marginTop: 10 }}>
-          <b>📈 Season by season</b>
+          <b>📈 {school ? "Month by month" : "Season by season"}</b>
           <LineChart
             labels={months.map((m) => MONTHS_SHORT[Number(m.key.slice(5, 7)) - 1])}
             series={[{ name: "Monthly average", values: months.map((m) => m.avg), color: "tier" }]}
@@ -198,6 +200,8 @@ function StatsBody({ days, streak }: { days: Day[]; streak: number }) {
         </div>
       )}
 
+      {school && <SemesterCard days={days} />}
+
       <RankedDays title="Top Rated Days" icon={<Star size={18} color="#f7c948" fill="#f7c948" />} list={topDays(days, 25, "best")} accent="#3767f2" />
       <RankedDays title="Lowest Rated Days" icon={<TriangleAlert size={18} color="#ff5a4f" />} list={topDays(days, 25, "worst")} accent="#a23be0" />
       <TopGenres days={days} tags={data.tags} />
@@ -205,7 +209,51 @@ function StatsBody({ days, streak }: { days: Day[]; streak: number }) {
   );
 }
 
+function SemesterCard({ days }: { days: Day[] }) {
+  const { series } = useStore();
+  const groups = new Map<string, Day[]>();
+  for (const d of days) {
+    const k = seasonOf(d.date, series).key;
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k)!.push(d);
+  }
+  const rows = [...groups.values()].map((list) => ({ season: seasonOf(list[0].date, series), avg: average(list), count: list.length }));
+  const [prev, last] = rows.slice(-2);
+  return (
+    <div className="card" style={{ marginTop: 10 }}>
+      <b>🎓 Semesters</b>
+      <div className="col" style={{ gap: 12, marginTop: 12 }}>
+        {rows.map((r) => (
+          <div key={r.season.key} className="row" style={{ gap: 10 }}>
+            <span className="rank-num" style={{ width: 38, fontSize: 12 }}>
+              {r.season.badge}
+            </span>
+            <span style={{ width: 92, flex: "none" }}>
+              <div style={{ fontWeight: 600 }}>{r.season.name}</div>
+              <div className="tiny muted">{r.count} episodes</div>
+            </span>
+            <span className="grow" style={{ height: 10, background: "#2c2c30", borderRadius: 5, overflow: "hidden" }}>
+              <span style={{ display: "block", height: "100%", width: `${r.avg * 10}%`, background: colorFor(r.avg), borderRadius: 5 }} />
+            </span>
+            <b className="tabular" style={{ width: 30, textAlign: "right" }}>
+              {fmt(r.avg)}
+            </b>
+          </div>
+        ))}
+      </div>
+      {prev && last && (
+        <div className="small muted" style={{ marginTop: 12 }}>
+          {Math.abs(last.avg - prev.avg) < 0.05
+            ? `${last.season.name} is level with ${prev.season.name}.`
+            : `${last.season.name} is ${last.avg > prev.avg ? "up" : "down"} ${fmt(Math.abs(last.avg - prev.avg))} on ${prev.season.name}.`}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function RankedDays({ title, icon, list, accent }: { title: string; icon: ReactNode; list: Day[]; accent: string }) {
+  const { series } = useStore();
   const [page, setPage] = useState(0);
   const shown = list.slice(page * 5, page * 5 + 5);
   return (
@@ -224,7 +272,7 @@ function RankedDays({ title, icon, list, accent }: { title: string; icon: ReactN
               {d.title || "Untitled episode"}
             </div>
             <div className="small muted">
-              {episodeLabel(d.date)} ({formatMonthDay(d.date)}, {d.date.slice(0, 4)})
+              {episodeLabel(d.date, series)} ({formatMonthDay(d.date)}, {d.date.slice(0, 4)})
             </div>
           </span>
           <span className="score-star">

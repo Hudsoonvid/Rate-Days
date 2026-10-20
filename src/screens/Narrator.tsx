@@ -1,9 +1,10 @@
 import { ChevronLeft, ChevronRight, MonitorPlay, RefreshCw, Sparkles } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Segmented, TopBar } from "../components/ui";
-import { aiRecap, describeRecapSource, NarratorError } from "../lib/claude";
+import { localRecap as aiRecap } from "../lib/localAi";
 import { gatherFacts, localRecap, type RecapContent } from "../lib/narrator";
 import { periodContaining, shiftPeriod, type PeriodKind } from "../lib/periods";
+import { describeRecapSource, NarratorError } from "../lib/recapPrompt";
 import { navigate } from "../lib/router";
 import { inRange, sortedDays } from "../lib/stats";
 import { useStore } from "../lib/store";
@@ -11,30 +12,31 @@ import { useStore } from "../lib/store";
 const KINDS: PeriodKind[] = ["week", "season", "year"];
 
 export function Narrator({ initialKind }: { initialKind: string | null }) {
-  const { data, today, saveRecap } = useStore();
+  const { data, today, series, saveRecap } = useStore();
+  const { settings } = data;
   const [kind, setKind] = useState<PeriodKind>(KINDS.includes(initialKind as PeriodKind) ? (initialKind as PeriodKind) : "season");
   const all = useMemo(() => sortedDays(data.days), [data.days]);
 
   const startFor = (k: PeriodKind) => {
-    const p = periodContaining(k, today);
-    // A brand-new week or month has nothing to recap yet; open on the last one instead.
+    const p = periodContaining(k, today, series);
+    // A brand-new week or season has nothing to recap yet; open on the last one instead.
     return inRange(all, p.start, p.end).length ? 0 : -1;
   };
   const [offset, setOffset] = useState(() => startFor(kind));
-  const period = shiftPeriod(periodContaining(kind, today), offset);
-  const facts = useMemo(() => gatherFacts(data, period), [data, period.key]);
+  const period = shiftPeriod(periodContaining(kind, today, series), offset);
+  const facts = useMemo(() => gatherFacts(data, period), [data, period.key, series]);
   const cached = data.recaps[period.key];
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   let recap: RecapContent = localRecap(facts);
-  let source = "Told by your local narrator";
+  let source = "Told by the built-in narrator";
   if (cached) {
     try {
       recap = JSON.parse(cached.text) as RecapContent;
-      source = describeRecapSource(cached.createdAt);
+      source = describeRecapSource(cached.createdAt, cached.source);
     } catch {
-      // Ignore a corrupt cache entry and fall back to the local recap.
+      // Ignore a corrupt cache entry and fall back to the built-in recap.
     }
   }
 
@@ -44,12 +46,14 @@ export function Narrator({ initialKind }: { initialKind: string | null }) {
     setError(null);
   };
 
-  const writeWithClaude = async () => {
+  const connected = Boolean(settings.localUrl && settings.localModel);
+
+  const write = async () => {
     setBusy(true);
     setError(null);
     try {
-      const content = await aiRecap(data.settings.apiKey, data, facts);
-      saveRecap({ key: period.key, text: JSON.stringify(content), createdAt: Date.now() });
+      const content = await aiRecap(settings, data, facts);
+      saveRecap({ key: period.key, text: JSON.stringify(content), createdAt: Date.now(), source: "AI" });
     } catch (e) {
       setError(e instanceof NarratorError ? e.message : "Something went wrong writing the recap.");
     } finally {
@@ -58,7 +62,6 @@ export function Narrator({ initialKind }: { initialKind: string | null }) {
   };
 
   const atLatest = offset >= 0;
-  const hasKey = Boolean(data.settings.apiKey);
 
   return (
     <div className="app">
@@ -77,7 +80,7 @@ export function Narrator({ initialKind }: { initialKind: string | null }) {
           onChange={changeKind}
           options={[
             { value: "week", label: "Week" },
-            { value: "season", label: "Season" },
+            { value: "season", label: data.format.mode === "school" ? "Semester" : "Season" },
             { value: "year", label: "Year" },
           ]}
         />
@@ -120,15 +123,15 @@ export function Narrator({ initialKind }: { initialKind: string | null }) {
 
       {facts.days.length > 0 && (
         <div style={{ marginTop: 16 }}>
-          {hasKey ? (
-            <button className="btn primary block" onClick={writeWithClaude} disabled={busy}>
+          {connected ? (
+            <button className="btn primary block" onClick={write} disabled={busy}>
               {busy ? (
                 <>
-                  <RefreshCw size={18} className="spin" /> The narrator is writing…
+                  <RefreshCw size={18} className="spin" /> The AI is writing…
                 </>
               ) : (
                 <>
-                  <Sparkles size={18} /> {cached ? "Rewrite with Claude" : "Write this recap with Claude"}
+                  <Sparkles size={18} /> {cached ? "Rewrite with AI" : "Write with AI"}
                 </>
               )}
             </button>
@@ -136,11 +139,16 @@ export function Narrator({ initialKind }: { initialKind: string | null }) {
             <button className="list-row" onClick={() => navigate("/settings")}>
               <Sparkles size={20} color="#f7c948" />
               <span className="grow small">
-                <b>Want an AI-written recap?</b>
-                <div className="muted">Add your Anthropic API key in Settings and Claude will narrate each week, season and year.</div>
+                <b>Connect to AI</b>
+                <div className="muted">Have an AI write this recap. Set it up once in Settings.</div>
               </span>
               <ChevronRight size={18} className="chev" />
             </button>
+          )}
+          {busy && (
+            <p className="small muted center" style={{ marginTop: 10 }}>
+              This can take a minute.
+            </p>
           )}
           {error && (
             <p className="small" style={{ color: "var(--danger)", marginTop: 10 }}>

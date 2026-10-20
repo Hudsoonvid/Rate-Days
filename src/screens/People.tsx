@@ -2,10 +2,11 @@ import { Activity, Hash, Info, Search, Star, UserRound } from "lucide-react";
 import { useMemo, useState } from "react";
 import { LineChart } from "../components/charts";
 import { Avatar, Empty, Pager, TopBar } from "../components/ui";
-import { monthKey, MONTHS_SHORT, yearOf } from "../lib/dates";
+import { monthKey, MONTHS_SHORT } from "../lib/dates";
+import { storyYearOf } from "../lib/seasons";
 import { colorFor, fmt } from "../lib/ratings";
 import { navigate } from "../lib/router";
-import { average, byMonth, personStats, rankByRating, sortedDays } from "../lib/stats";
+import { average, byMonth, inRange, personStats, rankByRating, sortedDays } from "../lib/stats";
 import { useStore } from "../lib/store";
 
 export function People() {
@@ -24,9 +25,9 @@ export function People() {
   const [selected, setSelected] = useState<string | null>(null);
   const focus = ranked.find((r) => r.item.id === selected) ?? ranked[0];
 
-  // Lifeline over the current year's seasons, against your own monthly average.
-  const year = yearOf(today);
-  const yearDays = days.filter((d) => yearOf(d.date) === year);
+  // Lifeline over the current (school) year, month by month, against your own monthly average.
+  const year = storyYearOf(today, data.format);
+  const yearDays = inRange(days, year.start, year.end);
   const months = byMonth(yearDays);
   const labels = months.map((m) => MONTHS_SHORT[Number(m.key.slice(5, 7)) - 1]);
   const personValues = focus
