@@ -2,12 +2,13 @@ import { CalendarDays, ChevronLeft, ChevronRight, Grid2x2, Grid3x3, Info, List, 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AppHeader, Dialog, Legend, RatingBadge, Ring, useToast } from "../components/ui";
 import { DEFAULT_COVER } from "../lib/coverArt";
-import { daysInMonth, formatShort, monthLabel, MONTHS_SHORT, WEEKDAYS, weekdayIndex, yearOf } from "../lib/dates";
+import { daysInMonth, formatShort, MONTHS_SHORT, WEEKDAYS, weekdayIndex } from "../lib/dates";
 import { weekCount } from "../lib/goals";
 import { readPref, writePref } from "../lib/prefs";
 import { colorFor, fmt, tierFor } from "../lib/ratings";
 import { navigate } from "../lib/router";
-import { average, byMonth, sortedDays, topDays } from "../lib/stats";
+import { episodeNumber, seasonOf, seasonsInYear, storyYearOf, storyYearStarting, type StoryYear } from "../lib/seasons";
+import { average, inRange, sortedDays, topDays } from "../lib/stats";
 import { useStore } from "../lib/store";
 import type { Day, GridView } from "../lib/types";
 
@@ -15,9 +16,10 @@ const VIEWS = ["grid", "compact", "list"] as const;
 let rememberedYear: number | null = null;
 
 export function Home() {
-  const { data, today } = useStore();
+  const { data, today, series } = useStore();
+  const fmtMode = data.format.mode;
   const toast = useToast();
-  const [year, setYearState] = useState(() => rememberedYear ?? yearOf(today));
+  const [startYear, setYearState] = useState(() => rememberedYear ?? storyYearOf(today, data.format).startYear);
   const [view, setViewState] = useState<GridView>(() => readPref("view", "grid", VIEWS));
   const [about, setAbout] = useState(false);
 
@@ -30,13 +32,15 @@ export function Home() {
     setViewState(v);
   };
 
+  const year = useMemo(() => storyYearStarting(startYear, data.format), [startYear, data.format]);
   const all = useMemo(() => sortedDays(data.days), [data.days]);
-  const yearDays = useMemo(() => all.filter((d) => yearOf(d.date) === year), [all, year]);
+  const yearDays = useMemo(() => inRange(all, year.start, year.end), [all, year]);
   const years = useMemo(() => {
-    const set = new Set(all.map((d) => yearOf(d.date)));
-    set.add(yearOf(today));
+    const set = new Set(all.map((d) => storyYearOf(d.date, data.format).startYear));
+    set.add(storyYearOf(today, data.format).startYear);
     return [...set].sort();
-  }, [all, today]);
+  }, [all, today, data.format]);
+  const yearLabel = fmtMode === "school" ? `${year.label} school year` : year.label;
   const avg = average(yearDays);
   const { profile } = data;
   const storyTitle = profile.storyTitle || (profile.name ? `${profile.name}'s Story` : "My Story");
@@ -44,7 +48,7 @@ export function Home() {
   const share = async () => {
     const best = topDays(yearDays, 1)[0];
     const text = yearDays.length
-      ? `${storyTitle} — ${year}: ${fmt(avg)}/10 across ${yearDays.length} episodes.${best ? ` Best episode: “${best.title || formatShort(best.date)}” (${fmt(best.rating)}).` : ""} Rated with RateDays.`
+      ? `${storyTitle} — ${yearLabel}: ${fmt(avg)}/10 across ${yearDays.length} episodes.${best ? ` Best episode: “${best.title || formatShort(best.date)}” (${fmt(best.rating)}).` : ""} Rated with RateDays.`
       : `${storyTitle} — every day is an episode. Rated with RateDays.`;
     try {
       if (navigator.share) await navigator.share({ title: storyTitle, text });
@@ -73,7 +77,7 @@ export function Home() {
             <span className="muted">({yearDays.length} rating{yearDays.length === 1 ? "" : "s"})</span>
           </div>
           <div className="story-title">{storyTitle}</div>
-          <div className="year">{year}</div>
+          <div className="year">{yearLabel}</div>
           {profile.tagline && <div className="tagline">{profile.tagline}</div>}
           <div className="profile-actions">
             <button className="share" onClick={share}>
@@ -96,11 +100,13 @@ export function Home() {
       <div className="year-bar">
         <div className="year-picker">
           <CalendarDays size={22} className="muted" style={{ marginRight: 6 }} />
-          <button className="icon-btn" onClick={() => setYear(year - 1)} aria-label="Previous year" disabled={year <= years[0]}>
+          <button className="icon-btn" onClick={() => setYear(startYear - 1)} aria-label="Previous year" disabled={startYear <= years[0]}>
             <ChevronLeft size={20} />
           </button>
-          <span className="tabular">{year}</span>
-          <button className="icon-btn" onClick={() => setYear(year + 1)} aria-label="Next year" disabled={year >= years[years.length - 1]}>
+          <span className="tabular" style={fmtMode === "school" ? { fontSize: 28 } : undefined}>
+            {year.label}
+          </span>
+          <button className="icon-btn" onClick={() => setYear(startYear + 1)} aria-label="Next year" disabled={startYear >= years[years.length - 1]}>
             <ChevronRight size={20} />
           </button>
         </div>
@@ -122,8 +128,18 @@ export function Home() {
       <Dialog open={about} onClose={() => setAbout(false)}>
         <h2 className="h2">Your life, as a series</h2>
         <p className="muted" style={{ lineHeight: 1.5 }}>
-          Every day is an <b style={{ color: "#fff" }}>episode</b> you rate from 0 to 10. Every month is a <b style={{ color: "#fff" }}>season</b> — S1 is
-          January, E14 is the 14th. Add the people (your cast), places and tags, and RateDays shows what lifts your days and what drags them down.
+          Every day is an <b style={{ color: "#fff" }}>episode</b> you rate from 0 to 10.{" "}
+          {fmtMode === "school" ? (
+            <>
+              Every semester is a <b style={{ color: "#fff" }}>season</b> — Fall, Spring and Summer break — counted from your first episode.
+            </>
+          ) : (
+            <>
+              Every month is a <b style={{ color: "#fff" }}>season</b>: the month of your first episode is Season 1, the next month Season 2, and so on.
+            </>
+          )}{" "}
+          Your first episode is S1 E1 — the pilot ({formatShort(series.premiere)}). Add the people (your cast), places and tags, and RateDays shows what lifts your days
+          and what drags them down.
         </p>
         <Legend />
         <p className="small muted" style={{ marginTop: 16 }}>
@@ -183,47 +199,72 @@ function WeekCommitments() {
   );
 }
 
-function YearGrid({ year, compact }: { year: number; compact: boolean }) {
-  const { data, today } = useStore();
+function YearGrid({ year, compact }: { year: StoryYear; compact: boolean }) {
+  const { data, today, series } = useStore();
   const scroller = useRef<HTMLDivElement>(null);
   const cellW = compact ? 0 : 44;
+  const school = data.format.mode === "school";
+  const months = year.months;
 
   useEffect(() => {
     // Bring the current season into view.
     const el = scroller.current;
     if (!el || compact) return;
-    const month = yearOf(today) === year ? Number(today.slice(5, 7)) - 1 : 0;
-    el.scrollLeft = Math.max(0, (month - 4) * (cellW + 4));
-  }, [year, compact, today, cellW]);
+    const idx = months.findIndex(([y, m]) => y === Number(today.slice(0, 4)) && m === Number(today.slice(5, 7)) - 1);
+    el.scrollLeft = Math.max(0, (Math.max(0, idx) - 4) * (cellW + 4));
+  }, [year.key, compact, today, cellW, months]);
 
   const open = (date: string) => {
     if (data.days[date]) navigate(`/day/${date}`);
     else if (date <= today) navigate(`/edit/${date}`);
   };
 
+  const iso = (y: number, m: number, d: number) => `${y}-${String(m + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
   const columns = compact ? `20px repeat(12, minmax(0, 1fr))` : `26px repeat(12, ${cellW}px)`;
-  const cells: JSX.Element[] = [<span key="corner" className="corner" />];
-  for (let m = 0; m < 12; m++) {
+  const cells: JSX.Element[] = [];
+
+  if (school) {
+    // A band per semester spanning its months.
+    cells.push(<span key="band-corner" className="corner" />);
+    for (const s of seasonsInYear(year, series)) {
+      const span = months.filter(([y, m]) => {
+        const first = iso(y, m, 1);
+        return first >= s.start && first <= s.end;
+      }).length;
+      if (!span) continue;
+      const live = s.number >= 1;
+      cells.push(
+        <span key={`band-${s.key}`} className={`season-band ${s.kind}${live ? "" : " pre"}`} style={{ gridColumn: `span ${span}` }}>
+          {live && <b>{s.badge}</b>} {compact && span < 3 ? s.name.split(" ")[0] : s.name}
+        </span>,
+      );
+    }
+  }
+
+  cells.push(<span key="corner" className="corner" />);
+  months.forEach(([y, m], i) => {
+    const season = seasonOf(iso(y, m, 1), series);
     cells.push(
-      <span key={`h${m}`} className="head">
+      <span key={`h${i}`} className="head">
         <b>{compact ? MONTHS_SHORT[m][0] : MONTHS_SHORT[m]}</b>
-        {!compact && <small>S{m + 1}</small>}
+        {!compact && !school && <small>{season.number >= 1 ? season.badge : "—"}</small>}
       </span>,
     );
-  }
+  });
+
   for (let d = 1; d <= 31; d++) {
     cells.push(
       <span key={`r${d}`} className="label row-label">
-        {compact ? (d % 5 === 0 || d === 1 ? d : "") : `E${d}`}
+        {compact ? (d % 5 === 0 || d === 1 ? d : "") : d}
       </span>,
     );
-    for (let m = 0; m < 12; m++) {
-      const key = `${m}-${d}`;
-      if (d > daysInMonth(year, m)) {
+    months.forEach(([y, m], i) => {
+      const key = `${i}-${d}`;
+      if (d > daysInMonth(y, m)) {
         cells.push(<span key={key} className="cell none" />);
-        continue;
+        return;
       }
-      const date = `${year}-${String(m + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+      const date = iso(y, m, d);
       const day = data.days[date];
       if (day) {
         const t = tierFor(day.rating);
@@ -233,10 +274,11 @@ function YearGrid({ year, compact }: { year: number; compact: boolean }) {
           </button>,
         );
       } else {
-        const cls = date === today ? "cell today" : date > today ? "cell future" : "cell unrated";
+        // Days before the premiere aren't missed episodes — the show hadn't started yet.
+        const cls = date === today ? "cell today" : date > today ? "cell future" : date < series.premiere ? "cell before" : "cell unrated";
         cells.push(<button key={key} className={cls} onClick={() => open(date)} aria-label={`${date}: not rated`} disabled={date > today} />);
       }
-    }
+    });
   }
 
   return (
@@ -249,8 +291,7 @@ function YearGrid({ year, compact }: { year: number; compact: boolean }) {
 }
 
 function EpisodeList({ days }: { days: Day[] }) {
-  const { data } = useStore();
-  const months = byMonth(days).reverse();
+  const { data, series } = useStore();
   if (!days.length) {
     return (
       <div className="empty">
@@ -259,34 +300,44 @@ function EpisodeList({ days }: { days: Day[] }) {
     );
   }
   const tags = new Map(data.tags.map((t) => [t.id, t]));
+  const groups = new Map<string, Day[]>();
+  for (const d of days) {
+    const k = seasonOf(d.date, series).key;
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k)!.push(d);
+  }
   return (
     <div className="episode-list">
-      {months.map((m) => {
-        const list = days.filter((d) => d.date.startsWith(m.key)).reverse();
+      {[...groups.values()].reverse().map((list) => {
+        const season = seasonOf(list[0].date, series);
+        const avg = average(list);
         return (
-          <div key={m.key}>
+          <div key={season.key}>
             <div className="season-head">
               <b>
-                S{Number(m.key.slice(5, 7))} · {monthLabel(m.key)}
+                {season.badge} · {season.name}
               </b>
-              <span className="small tabular" style={{ color: colorFor(m.avg) }}>
-                {fmt(m.avg)} avg
+              <span className="small tabular" style={{ color: colorFor(avg) }}>
+                {fmt(avg)} avg
               </span>
             </div>
-            {list.map((d) => (
-              <button key={d.date} className="list-row" onClick={() => navigate(`/day/${d.date}`)}>
-                <RatingBadge rating={d.rating} size={42} />
-                <span className="grow">
-                  <div className="ellipsis" style={{ fontWeight: 600 }}>
-                    {d.title || "Untitled episode"}
-                  </div>
-                  <div className="small muted ellipsis">
-                    E{Number(d.date.slice(8))} · {formatShort(d.date)} {d.tags.slice(0, 4).map((id) => tags.get(id)?.emoji).join(" ")}
-                  </div>
-                </span>
-                <ChevronRight size={18} className="chev" />
-              </button>
-            ))}
+            {list
+              .slice()
+              .reverse()
+              .map((d) => (
+                <button key={d.date} className="list-row" onClick={() => navigate(`/day/${d.date}`)}>
+                  <RatingBadge rating={d.rating} size={42} />
+                  <span className="grow">
+                    <div className="ellipsis" style={{ fontWeight: 600 }}>
+                      {d.title || "Untitled episode"}
+                    </div>
+                    <div className="small muted ellipsis">
+                      E{episodeNumber(d.date, series)} · {formatShort(d.date)} {d.tags.slice(0, 4).map((id) => tags.get(id)?.emoji).join(" ")}
+                    </div>
+                  </span>
+                  <ChevronRight size={18} className="chev" />
+                </button>
+              ))}
           </div>
         );
       })}

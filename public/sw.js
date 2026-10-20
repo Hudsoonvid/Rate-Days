@@ -1,7 +1,7 @@
 // Offline support: the app shell is network-first (so updates land on the next
 // launch), hashed build assets are cache-first. Cross-origin requests (map
-// tiles, geocoding, the Anthropic API) always go straight to the network.
-const CACHE = "ratedays-v1";
+// tiles, geocoding, your AI server) always go straight to the network.
+const CACHE = "ratedays-v2";
 const SHELL = ["./", "./index.html", "./manifest.webmanifest", "./icon.svg", "./apple-touch-icon.png"];
 
 self.addEventListener("install", (event) => {

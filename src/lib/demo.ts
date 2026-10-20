@@ -1,6 +1,8 @@
 import { addDays, daysBetween, monthIndex, weekdayIndex } from "./dates";
 import { STARTER_TAGS } from "./presets";
 import { roundRating } from "./ratings";
+import { DEFAULT_FORMAT } from "./seasons";
+import { DEFAULT_SETTINGS } from "./defaults";
 import type { AppData, Day, ISODate, Person, Place } from "./types";
 
 /**
@@ -217,7 +219,8 @@ export function buildDemoData(today: ISODate, seed = 2026): AppData {
         { id: "c-meditate", label: "Meditate", tagId: "t-meditation", perWeek: 4 },
       ],
     },
-    settings: { apiKey: "" },
+    settings: { ...DEFAULT_SETTINGS },
+    format: { ...DEFAULT_FORMAT },
     recaps: {},
     onboarded: true,
   };

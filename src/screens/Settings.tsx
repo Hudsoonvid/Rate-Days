@@ -1,25 +1,23 @@
-import { Database, Download, Eye, EyeOff, KeyRound, Smartphone, Sparkles, Trash2, Upload, UserRound } from "lucide-react";
+import { CalendarRange, Check, Copy, Database, Download, Plug, Smartphone, Sparkles, Trash2, Upload, UserRound } from "lucide-react";
 import { useState } from "react";
-import { Dialog, Legend, TopBar, useToast } from "../components/ui";
-import { AI_MODEL } from "../lib/claude";
-import { todayISO } from "../lib/dates";
+import { Dialog, Legend, Segmented, TopBar, useToast } from "../components/ui";
+import { formatShort, MONTHS, MONTHS_SHORT, todayISO } from "../lib/dates";
 import { downloadText } from "../lib/image";
+import { connectToAi, mixedContentWarning, normalizeServerUrl } from "../lib/localAi";
+import { NarratorError } from "../lib/recapPrompt";
 import { navigate } from "../lib/router";
+import { seasonOf } from "../lib/seasons";
 import { parseBackup, serializeBackup, useStore } from "../lib/store";
+import type { SeriesFormat } from "../lib/types";
+
+const SETUP_COMMAND = "irm https://raw.githubusercontent.com/Hudsoonvid/Rate-Days/main/ai/setup.ps1 | iex";
 
 export function SettingsScreen() {
   const store = useStore();
   const { data, persistent } = store;
   const toast = useToast();
-  const [key, setKey] = useState(data.settings.apiKey);
-  const [reveal, setReveal] = useState(false);
   const [confirm, setConfirm] = useState<null | "demo" | "reset">(null);
   const count = Object.keys(data.days).length;
-
-  const saveKey = () => {
-    store.setSettings({ ...data.settings, apiKey: key.trim() });
-    toast(key.trim() ? "API key saved on this device" : "API key removed");
-  };
 
   const exportData = () => {
     downloadText(`ratedays-backup-${todayISO()}.json`, serializeBackup(data));
@@ -52,38 +50,8 @@ export function SettingsScreen() {
         </button>
       </div>
 
-      <div className="section">
-        <h2 className="section-title h3">
-          <Sparkles size={18} color="#f7c948" /> AI narrator
-        </h2>
-        <div className="card stack">
-          <p className="small muted" style={{ margin: 0, lineHeight: 1.5 }}>
-            The Narrator's Cut works offline out of the box. Add your own Anthropic API key and Claude ({AI_MODEL}) will write your week, season and year
-            recaps. The key stays on this device and is only sent to api.anthropic.com. It's never included in backups.
-          </p>
-          <div className="search-box" style={{ background: "var(--card-2)" }}>
-            <KeyRound size={16} />
-            <input
-              type={reveal ? "text" : "password"}
-              value={key}
-              onChange={(e) => setKey(e.target.value)}
-              placeholder="sk-ant-…"
-              autoComplete="off"
-              spellCheck={false}
-              aria-label="Anthropic API key"
-            />
-            <button onClick={() => setReveal(!reveal)} aria-label={reveal ? "Hide key" : "Show key"} className="muted">
-              {reveal ? <EyeOff size={17} /> : <Eye size={17} />}
-            </button>
-          </div>
-          <button className="btn primary block" onClick={saveKey} disabled={key.trim() === data.settings.apiKey}>
-            Save key
-          </button>
-          <a className="small" style={{ color: "var(--link)" }} href="https://console.anthropic.com/settings/keys" target="_blank" rel="noreferrer">
-            Get an API key →
-          </a>
-        </div>
-      </div>
+      <SeasonFormatCard />
+      <AiCard />
 
       <div className="section">
         <h2 className="section-title h3">
@@ -154,6 +122,195 @@ export function SettingsScreen() {
           </button>
         </div>
       </Dialog>
+    </div>
+  );
+}
+
+function SeasonFormatCard() {
+  const { data, series, setFormat } = useStore();
+  const toast = useToast();
+  const f = data.format;
+  const school = f.mode === "school";
+  const first = seasonOf(series.premiere, series);
+  const update = (next: SeriesFormat) => {
+    setFormat(next);
+    toast(next.mode === "school" ? "Seasons are now semesters" : "Seasons are now months");
+  };
+  const summer = f.springEnd + 1 <= f.schoolStart - 1;
+
+  return (
+    <div className="section">
+      <h2 className="section-title h3">
+        <CalendarRange size={18} color="#4ade80" /> Seasons
+      </h2>
+      <div className="card stack">
+        <Segmented
+          value={f.mode}
+          onChange={(mode) => update({ ...f, mode })}
+          options={[
+            { value: "calendar", label: "Months" },
+            { value: "school", label: "School year" },
+          ]}
+        />
+        <p className="small muted" style={{ marginBottom: 0, lineHeight: 1.5 }}>
+          {school ? (
+            <>
+              Each semester is a season: <b style={{ color: "#fff" }}>Fall</b> ({MONTHS_SHORT[f.schoolStart]}–Dec), <b style={{ color: "#fff" }}>Spring</b> (Jan–
+              {MONTHS_SHORT[f.springEnd]}){summer ? (
+                <>
+                  {" "}and <b style={{ color: "#fff" }}>Summer break</b> ({MONTHS_SHORT[f.springEnd + 1]}
+                  {f.schoolStart - 1 > f.springEnd + 1 ? `–${MONTHS_SHORT[f.schoolStart - 1]}` : ""})
+                </>
+              ) : null}
+              . The year runs {MONTHS_SHORT[f.schoolStart]} to {MONTHS_SHORT[(f.schoolStart + 11) % 12]}.
+            </>
+          ) : (
+            <>Each month is a season.</>
+          )}{" "}
+          Season 1 is <b style={{ color: "#fff" }}>{first.name}</b>, starting with your first episode ({formatShort(series.premiere)}); every{" "}
+          {school ? "semester" : "month"} after that is the next season.
+        </p>
+        {school && (
+          <div className="row" style={{ gap: 10 }}>
+            <label className="field grow">
+              <span>Fall starts</span>
+              <select className="select" value={f.schoolStart} onChange={(e) => update({ ...f, schoolStart: Number(e.target.value) })}>
+                {[6, 7, 8].map((m) => (
+                  <option key={m} value={m}>
+                    {MONTHS[m]}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field grow">
+              <span>Spring ends</span>
+              <select className="select" value={f.springEnd} onChange={(e) => update({ ...f, springEnd: Number(e.target.value) })}>
+                {[3, 4, 5].map((m) => (
+                  <option key={m} value={m}>
+                    {MONTHS[m]}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function AiCard() {
+  const { data, setSettings } = useStore();
+  const toast = useToast();
+  const s = data.settings;
+  const [url, setUrl] = useState(s.localUrl);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [help, setHelp] = useState(false);
+  const connected = Boolean(s.localUrl && s.localModel);
+  const warning = url.trim() ? mixedContentWarning(normalizeServerUrl(url), window.location.protocol) : null;
+
+  const connect = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const { url: address, model } = await connectToAi(url);
+      setSettings({ localUrl: address, localModel: model });
+      toast("Connected to AI");
+    } catch (e) {
+      setError(e instanceof NarratorError ? e.message : "Couldn't connect.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const copyCommand = async () => {
+    try {
+      await navigator.clipboard.writeText(SETUP_COMMAND);
+      toast("Copied — paste it into PowerShell on that computer");
+    } catch {
+      toast("Couldn't copy; select the command and copy it manually");
+    }
+  };
+
+  return (
+    <div className="section">
+      <h2 className="section-title h3">
+        <Sparkles size={18} color="#f7c948" /> Connect to AI
+      </h2>
+      <div className="card stack">
+        {connected ? (
+          <>
+            <div className="row">
+              <span className="nav-icon" style={{ background: "rgba(74,222,128,0.14)", color: "#4ade80" }}>
+                <Check size={20} strokeWidth={3} />
+              </span>
+              <span className="grow">
+                <b>Connected</b>
+                <div className="small muted ellipsis">{s.localUrl}</div>
+              </span>
+            </div>
+            <p className="small muted" style={{ marginBottom: 0, lineHeight: 1.5 }}>
+              Open the Narrator's Cut and tap <b style={{ color: "#fff" }}>Write with AI</b>.
+            </p>
+            <button
+              className="btn block"
+              onClick={() => {
+                setSettings({ localUrl: "", localModel: "" });
+                setUrl("");
+              }}
+            >
+              Disconnect
+            </button>
+          </>
+        ) : (
+          <>
+            <p className="small muted" style={{ marginBottom: 0, lineHeight: 1.5 }}>
+              Let an AI write your recaps. It runs on your own computer, so your episodes never leave your devices.
+            </p>
+            <input
+              className="input"
+              style={{ background: "var(--card-2)" }}
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && url.trim() && !busy && connect()}
+              placeholder="Paste your AI address"
+              aria-label="AI address"
+              autoCapitalize="off"
+              autoCorrect="off"
+              spellCheck={false}
+              inputMode="url"
+            />
+            {warning && <p className="small" style={{ color: "#f7c948", marginBottom: 0 }}>{warning}</p>}
+            <button className="btn primary block" onClick={connect} disabled={busy || !url.trim()}>
+              <Plug size={17} /> {busy ? "Connecting…" : "Connect"}
+            </button>
+            {busy && <p className="small muted center" style={{ marginBottom: 0 }}>The first connection can take a minute while the AI starts up.</p>}
+            {error && <p className="small" style={{ color: "var(--danger)", marginBottom: 0 }}>{error}</p>}
+            <button className="text-btn small" style={{ alignSelf: "flex-start", padding: 0 }} onClick={() => setHelp(!help)}>
+              {help ? "Hide setup" : "Don't have an address? Set it up"}
+            </button>
+            {help && (
+              <ol className="small muted" style={{ margin: 0, paddingLeft: 18, lineHeight: 1.6 }}>
+                <li>
+                  Install <a href="https://tailscale.com/download" target="_blank" rel="noreferrer" style={{ color: "var(--link)" }}>Tailscale</a> on
+                  this phone and on a Windows PC with a good graphics card, and sign in to both.
+                </li>
+                <li>
+                  On the PC, open PowerShell and run:
+                  <code className="tiny" style={{ display: "block", wordBreak: "break-all", color: "#c7c7cc", margin: "6px 0", lineHeight: 1.5 }}>
+                    {SETUP_COMMAND}
+                  </code>
+                  <button className="btn small" onClick={copyCommand}>
+                    <Copy size={14} /> Copy
+                  </button>
+                </li>
+                <li>Paste the address it prints above and tap Connect.</li>
+              </ol>
+            )}
+          </>
+        )}
+      </div>
     </div>
   );
 }

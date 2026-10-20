@@ -50,7 +50,7 @@ function Screen() {
     case "finales":
       return <Finales />;
     case "finale":
-      return <FinaleStory month={arg} />;
+      return <FinaleStory anchor={arg ?? ""} />;
     case "settings":
       return <SettingsScreen />;
     case "profile":

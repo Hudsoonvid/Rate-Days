@@ -1,13 +1,14 @@
 import { MapPin, Pencil, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { Avatar, Dialog, Empty, Poster, TopBar } from "../components/ui";
-import { addDays, episodeLabel, formatLong, startOfWeek } from "../lib/dates";
+import { addDays, formatLong, startOfWeek } from "../lib/dates";
+import { episodeCaption } from "../lib/seasons";
 import { fmt, tierFor } from "../lib/ratings";
 import { back, navigate } from "../lib/router";
 import { useStore } from "../lib/store";
 
 export function DayView({ date }: { date: string }) {
-  const { data, removeDay } = useStore();
+  const { data, removeDay, series } = useStore();
   const [confirm, setConfirm] = useState(false);
   const day = data.days[date];
 
@@ -71,7 +72,7 @@ export function DayView({ date }: { date: string }) {
       <div className="day-body">
         <div className="center muted">{formatLong(date)}</div>
         <div className="center tiny dim" style={{ marginTop: 2 }}>
-          {episodeLabel(date)}
+          {episodeCaption(date, series)}
         </div>
         <div className="day-score">
           <b className="tabular">{fmt(day.rating)}</b>

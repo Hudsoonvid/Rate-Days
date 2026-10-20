@@ -57,14 +57,33 @@ export interface Goals {
   commitments: Commitment[];
 }
 
+/** "Connect to AI": the AI runs on the user's own computer. */
 export interface Settings {
-  apiKey: string;
+  /** Base URL of an OpenAI-compatible server (Ollama, LM Studio…), e.g. https://my-pc.tailnet.ts.net */
+  localUrl: string;
+  /** Chosen automatically when connecting; never shown to the user. */
+  localModel: string;
+}
+
+/**
+ * How the series is cut into seasons. Season numbers always count from the
+ * season of the first episode: in calendar mode each month is a season, in
+ * school mode each semester (Fall, Spring, and Summer break if there's a gap).
+ */
+export interface SeriesFormat {
+  mode: "calendar" | "school";
+  /** Month the school year (and Fall) starts, 0-based: 6 = July, 7 = August, 8 = September. */
+  schoolStart: number;
+  /** Last month of Spring, 0-based: 3 = April, 4 = May, 5 = June. */
+  springEnd: number;
 }
 
 export interface Recap {
   key: string;
   text: string;
   createdAt: number;
+  /** Who wrote it ("AI"); absent for the built-in narrator. */
+  source?: string;
 }
 
 export interface AppData {
@@ -75,6 +94,7 @@ export interface AppData {
   profile: Profile;
   goals: Goals;
   settings: Settings;
+  format: SeriesFormat;
   recaps: Record<string, Recap>;
   onboarded: boolean;
 }

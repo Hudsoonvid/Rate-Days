@@ -2,7 +2,9 @@
 
 **Rate your life like a series. Every day is an episode.**
 
-RateDays is a mobile-first web app (installable on your phone's home screen) where you rate each day from 0 to 10. Every month becomes a *season*, every day an *episode*, the people you spend time with become your *cast* — and the app shows you what actually makes your days better.
+RateDays is a mobile-first web app (installable on your phone's home screen) where you rate each day from 0 to 10. Every day is an *episode*, every month (or, in school-year mode, every semester) is a *season*, the people you spend time with become your *cast* — and the app shows you what actually makes your days better.
+
+Your series premieres on your first episode: that day is **S1 E1**, Season 1 runs to the end of that month (or semester), and every month after that is the next season — Season 2, Season 3, and so on, without resetting in January.
 
 Everything is stored on your device (IndexedDB). There's no account and no server.
 
@@ -10,7 +12,7 @@ Everything is stored on your device (IndexedDB). There's no account and no serve
 
 | Screen | What it does |
 | --- | --- |
-| **Home** | Your series poster, year average, and the season × episode grid (Jan = S1, the 14th = E14), colour-coded Awesome → Garbage. Switch between the detailed grid, a compact whole-year view, or an episode list. |
+| **Home** | Your series poster, year average, and the month × day grid with each month's season number, colour-coded Awesome → Garbage. In school-year mode the grid runs August → July with Fall / Spring / Summer bands. Switch between the detailed grid, a compact whole-year view, or an episode list grouped by season. |
 | **Day Summary** | Photo (or generated poster), rating, title, notes, characters, tags and location. Tap the sides of the photo to flip to the previous / next episode. |
 | **New / Edit Episode** | Rating slider with quick presets, title, notes, photo, cast, tags (create your own with emoji + genre), and places (search OpenStreetMap or pin your current location). |
 | **Stats** | Highest-average month and weekday, consistency (average day-to-day swing), great-day streak, longest tough stretch, rating distribution, average by weekday, histogram, season-by-season trend, top and lowest rated days, top genres. |
@@ -19,9 +21,13 @@ Everything is stored on your device (IndexedDB). There's no account and no serve
 | **Locations** | Map of your places with their average rating, best places, and each place's impact vs your average. |
 | **Season Goal** | Pick goals (build strength, sleep deeper, manage money…) and weekly commitments. Commitments tick themselves when you tag a day, and the results compare days you did it with days you didn't. |
 | **Search** | Find any day by person, place, note text, tag, title or date ("jul 12", "2026-03", "friday"). |
-| **Season Finales** | Story-style monthly recap: your season in colours, top and lowest episodes, top genres, the cast, and a narrated recap. |
-| **The Narrator's Cut** | Week / season / year recaps. Works offline with a built-in narrator; add your own Anthropic API key in Settings to have Claude write them. |
-| **Settings** | Profile and poster, API key, export / import a JSON backup, load a demo year, erase everything. |
+| **Season Finales** | Story-style recap of each season: your season in colours (a month calendar, or a week-by-week heatmap for a semester), top and lowest episodes, top genres, the cast, and a narrated recap. |
+| **The Narrator's Cut** | Week / season / year recaps. Works offline with a built-in narrator, or tap **Write with AI** once you've connected an AI running on your own computer (see below). |
+| **Settings** | Profile and poster, seasons (months or school year), Connect to AI, export / import a JSON backup, load a demo year, erase everything. |
+
+### School-year mode
+
+**Settings → Seasons → School year** (or tick *I'm a student* when you start) makes each semester a season: **Fall** (August–December), **Spring** (January–May) and **Summer break** in between. You can move the start of Fall (July / August / September) and the end of Spring (April / May / June). Years become school years (2026–27), and Stats gets a semester-vs-semester card.
 
 New here? Choose **Explore with a demo year** on the welcome screen to see every screen filled in, then **Settings → Erase everything** when you're ready to start your own story.
 
@@ -50,18 +56,36 @@ The workflow in `.github/workflows/deploy.yml` builds and publishes on every pus
 
 The build uses relative paths and hash routing, so `dist/` also works on any static host (Netlify, Vercel, Cloudflare Pages, S3…) with no extra configuration.
 
-## AI recaps with Claude
+## Connect to AI
 
-The Narrator's Cut writes recaps locally by default. For AI-written recaps, add an [Anthropic API key](https://console.anthropic.com/settings/keys) in **Settings → AI narrator**.
+The Narrator's Cut can have an AI write your recaps. The AI runs on your own computer — any Windows PC with a decent graphics card, like a gaming laptop. When you tap **Write with AI**, the app sends that period's episodes to the AI on your computer, it writes the recap, and the recap comes back to the app and is saved on your phone. Nothing goes to a third party and there's nothing to pay for.
 
-- Calls go straight from your browser to `api.anthropic.com` using the official `@anthropic-ai/sdk` (loaded only when you ask for a recap), with the model `claude-opus-5-5`.
-- The prompt contains only the episodes in the period you're recapping. Claude writes the prose; episode titles, dates and ratings come straight from your data.
-- Server-side refusal fallback is turned on (`fallbacks: "default"`), so if a safety check declines a request it's retried on a fallback model.
-- Recaps are cached on the device, so each one costs a single request until you choose **Rewrite**.
-- Your key is stored only on this device and is never written into backups. Because the key lives in the browser, use a key you're comfortable keeping on your phone and set a spending limit on it.
+**Setup (once, about 10 minutes):**
+
+1. Install **[Tailscale](https://tailscale.com/download)** on your phone and on the PC, and sign in to both with the same account. (Free. It gives the PC a private `https://` address your phone can reach from anywhere.)
+2. On the PC, open **PowerShell** and run:
+
+   ```powershell
+   irm https://raw.githubusercontent.com/Hudsoonvid/Rate-Days/main/ai/setup.ps1 | iex
+   ```
+
+   It installs [Ollama](https://ollama.com), lets the RateDays site talk to it, downloads a good AI model (about 5 GB), and prints your **AI address** (also copied to the clipboard). If Tailscale asks you to turn on HTTPS, follow the link it shows and run the command again.
+3. On your phone: **Settings → Connect to AI** → paste the address → **Connect**. Connect sends the AI a real test request, so *Connected* means it answered.
+
+Then open the Narrator's Cut and tap **Write with AI**.
+
+Good to know:
+
+- The PC needs to be on and awake when you ask for a recap. Saved recaps stay on your phone.
+- The first recap after the PC wakes up takes longer while the model loads.
+- The app picks the model automatically from what's installed. Advanced: to use a different one, run `$env:RATEDAYS_MODEL = "qwen2.5:14b"` before the setup command. If you host the site somewhere other than `hudsoonvid.github.io`, set `$env:RATEDAYS_SITE` to its address first.
+- Any OpenAI-compatible server works (e.g. LM Studio with CORS enabled, behind `tailscale serve`).
+- Long periods (a whole semester or year) are sent as highlights plus monthly averages, so the AI stays fast.
+- **Couldn't reach the AI** → check the PC is on, Tailscale is connected on the phone, and Ollama is running (it starts with Windows). **403** → run the setup command again.
 
 ## How the numbers work
 
+- **Seasons** are numbered from the season of your earliest episode. If you later back-fill an earlier day, the series starts there instead and the seasons renumber.
 - **Rating tiers:** 9+ Awesome · 8+ Great · 7+ Good · 5+ Average · 3+ Bad · under 3 Garbage.
 - **Consistency** = 100% − 20% × the average change between back-to-back rated days.
 - **Streaks** count consecutive calendar days, so a missing day breaks a streak.
@@ -71,8 +95,9 @@ The Narrator's Cut writes recaps locally by default. For AI-written recaps, add 
 
 ```
 src/
-  lib/          data model, IndexedDB persistence, analytics, narrator, Claude client, demo data
+  lib/          data model, IndexedDB persistence, seasons, analytics, narrator, AI client, demo data
   components/   shared UI and SVG charts
   screens/      one file per screen
 public/         PWA manifest, service worker, icons
+ai/             one-command Windows setup that turns a PC into the app's AI
 ```

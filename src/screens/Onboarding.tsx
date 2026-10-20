@@ -2,9 +2,10 @@ import { useState } from "react";
 import { useStore } from "../lib/store";
 
 export function Onboarding() {
-  const { finishOnboarding, loadDemo } = useStore();
+  const { data, finishOnboarding, loadDemo, setFormat } = useStore();
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
+  const school = data.format.mode === "school";
 
   const start = () => {
     const n = name.trim();
@@ -30,6 +31,14 @@ export function Onboarding() {
           <span>What should we call the main character?</span>
           <input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Your name" onKeyDown={(e) => e.key === "Enter" && start()} />
         </label>
+        <button
+          className="chip selectable"
+          aria-pressed={school}
+          onClick={() => setFormat({ ...data.format, mode: school ? "calendar" : "school" })}
+          style={{ alignSelf: "flex-start" }}
+        >
+          🎓 I'm a student — make my seasons Fall & Spring
+        </button>
         <button className="btn primary block" onClick={start}>
           Start my story
         </button>

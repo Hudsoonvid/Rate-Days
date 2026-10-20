@@ -9,7 +9,7 @@ import type { AppData, Day } from "./types";
 
 const DB_NAME = "ratedays";
 const DB_VERSION = 1;
-const META_KEYS = ["people", "tags", "places", "profile", "goals", "settings", "recaps", "onboarded"] as const;
+const META_KEYS = ["people", "tags", "places", "profile", "goals", "settings", "format", "recaps", "onboarded"] as const;
 type MetaKey = (typeof META_KEYS)[number];
 
 let dbPromise: Promise<IDBDatabase | null> | null = null;

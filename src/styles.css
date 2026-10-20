@@ -295,6 +295,7 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: -0.01em; }
 }
 .cell.unrated { background: #18181b; color: transparent; }
 .cell.future { background: #0d0d0f; }
+.cell.before { background: #0d0d0f; }
 .cell.today { outline: 2px solid var(--accent); outline-offset: -2px; background: #18181b; }
 .cell.none { visibility: hidden; }
 .compact .cell { height: 16px; border-radius: 3px; font-size: 0; }
@@ -559,3 +560,17 @@ h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: -0.01em; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .leaflet-container .leaflet-control-attribution { background: rgba(0, 0, 0, 0.6); color: #8e8e93; font-size: 10px; }
 .leaflet-container .leaflet-control-attribution a { color: #a1a1aa; }
+
+/* School-year season bands above the month headers */
+.season-band {
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+  height: 26px; border-radius: 8px; margin-bottom: 2px;
+  font-size: 12px; font-weight: 700; letter-spacing: 0.02em; white-space: nowrap; overflow: hidden;
+  background: #1c1c1e; color: #e5e5ea;
+}
+.season-band b { color: var(--accent); }
+.season-band.fall { background: linear-gradient(90deg, rgba(240, 138, 46, 0.28), rgba(229, 72, 61, 0.18)); }
+.season-band.spring { background: linear-gradient(90deg, rgba(63, 185, 80, 0.26), rgba(55, 103, 242, 0.18)); }
+.season-band.summer { background: linear-gradient(90deg, rgba(242, 194, 48, 0.26), rgba(240, 138, 46, 0.16)); }
+.season-band.pre { opacity: 0.45; }
+.compact .season-band { font-size: 10px; height: 20px; }

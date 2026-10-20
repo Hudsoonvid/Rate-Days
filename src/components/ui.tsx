@@ -75,11 +75,11 @@ export function RatingBadge({ rating, size = 40 }: { rating: number; size?: numb
   );
 }
 
-export function SeasonBadge({ season, avg }: { season: number; avg: number }) {
+export function SeasonBadge({ label, avg }: { label: string; avg: number }) {
   const t = tierFor(avg);
   return (
-    <span className="season-badge" style={{ background: t.color, color: t.ink }}>
-      S{season}
+    <span className="season-badge" style={{ background: t.color, color: t.ink, fontSize: label.length > 3 ? 14 : 17 }}>
+      {label}
     </span>
   );
 }

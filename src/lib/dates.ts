@@ -64,11 +64,6 @@ export function dayOfMonth(iso: ISODate): number {
   return Number(iso.slice(8, 10));
 }
 
-/** Season number = month (S1 = January), episode = day of month. */
-export function episodeLabel(iso: ISODate): string {
-  return `S${monthIndex(iso) + 1} E${dayOfMonth(iso)}`;
-}
-
 export function isoWeekNumber(iso: ISODate): number {
   const d = fromISO(iso);
   const target = new Date(d.valueOf());

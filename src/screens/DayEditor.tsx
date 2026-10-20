@@ -1,7 +1,8 @@
 import { Camera, LocateFixed, MapPin, Minus, Plus, Search, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Avatar, Dialog, TopBar, useToast } from "../components/ui";
-import { episodeLabel, formatLong } from "../lib/dates";
+import { formatLong } from "../lib/dates";
+import { episodeCaption } from "../lib/seasons";
 import { fileToDataUrl } from "../lib/image";
 import { EMOJI_CHOICES, GENRES } from "../lib/presets";
 import { fmt, roundRating, tierFor } from "../lib/ratings";
@@ -17,7 +18,7 @@ function usageCounts(days: Record<string, Day>, pick: (d: Day) => string[]): Map
 
 export function DayEditor({ date: param }: { date: string }) {
   const store = useStore();
-  const { data, today } = store;
+  const { data, today, series } = store;
   const toast = useToast();
   const initialDate = !param || param === "today" ? today : param;
   const existing = data.days[initialDate];
@@ -91,7 +92,7 @@ export function DayEditor({ date: param }: { date: string }) {
       />
 
       <div className="center muted" style={{ marginTop: 6 }}>
-        {formatLong(date)} · {episodeLabel(date)}
+        {formatLong(date)} · {episodeCaption(date, series)}
       </div>
 
       <div className="rating-dial">

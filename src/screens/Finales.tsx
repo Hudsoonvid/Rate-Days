@@ -1,40 +1,53 @@
 import { Play } from "lucide-react";
 import { useMemo } from "react";
 import { Empty, SeasonBadge, TopBar } from "../components/ui";
-import { monthLabel } from "../lib/dates";
 import { fmt } from "../lib/ratings";
 import { navigate } from "../lib/router";
-import { byMonth, sortedDays } from "../lib/stats";
+import { seasonOf, type Season } from "../lib/seasons";
+import { average, sortedDays } from "../lib/stats";
 import { useStore } from "../lib/store";
+import type { Day } from "../lib/types";
 
 export function Finales() {
-  const { data } = useStore();
-  const months = useMemo(() => byMonth(sortedDays(data.days)).reverse(), [data.days]);
+  const { data, series } = useStore();
+  const school = data.format.mode === "school";
+  const seasons = useMemo(() => {
+    const groups = new Map<string, { season: Season; days: Day[] }>();
+    for (const d of sortedDays(data.days)) {
+      const s = seasonOf(d.date, series);
+      if (!groups.has(s.key)) groups.set(s.key, { season: s, days: [] });
+      groups.get(s.key)!.days.push(d);
+    }
+    return [...groups.values()].reverse();
+  }, [data.days, series]);
 
   return (
     <div className="app">
       <TopBar close right={<span />} />
       <div className="feature-head" style={{ marginBottom: 16 }}>
         <h1>Season Finales</h1>
-        <p>Your monthly recaps</p>
+        <p>{school ? "Your semester recaps" : "Your monthly recaps"}</p>
       </div>
-      {!months.length ? (
+      {!seasons.length ? (
         <Empty emoji="🎞️" title="No seasons yet">
-          Rate a few days and each month becomes a season you can replay.
+          Rate a few days and each {school ? "semester" : "month"} becomes a season you can replay.
         </Empty>
       ) : (
-        months.map((m) => (
-          <button key={m.key} className="list-row" style={{ padding: 14 }} onClick={() => navigate(`/finale/${m.key}`)}>
-            <SeasonBadge season={Number(m.key.slice(5, 7))} avg={m.avg} />
-            <span className="grow">
-              <div style={{ fontWeight: 600, fontSize: 18 }}>{monthLabel(m.key)}</div>
-              <div className="small muted">
-                {m.count} episode{m.count === 1 ? "" : "s"} • {fmt(m.avg)} avg
-              </div>
-            </span>
-            <Play size={22} fill="#8e8e93" color="#8e8e93" />
-          </button>
-        ))
+        seasons.map(({ season, days }) => {
+          const avg = average(days);
+          return (
+            <button key={season.key} className="list-row" style={{ padding: 14 }} onClick={() => navigate(`/finale/${season.start}`)}>
+              <SeasonBadge label={season.badge} avg={avg} />
+              <span className="grow">
+                <div style={{ fontWeight: 600, fontSize: 18 }}>{season.name}</div>
+                <div className="small muted">
+                  {days.length} episode{days.length === 1 ? "" : "s"} • {fmt(avg)} avg
+                </div>
+              </span>
+              <Play size={22} fill="#8e8e93" color="#8e8e93" />
+            </button>
+          );
+        })
       )}
     </div>
   );
