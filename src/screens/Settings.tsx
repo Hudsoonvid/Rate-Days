@@ -10,7 +10,11 @@ import { seasonOf } from "../lib/seasons";
 import { parseBackup, serializeBackup, useStore } from "../lib/store";
 import type { SeriesFormat } from "../lib/types";
 
-const SETUP_COMMAND = "irm https://raw.githubusercontent.com/Hudsoonvid/Rate-Days/main/ai/setup.ps1 | iex";
+const SETUP = {
+  linux: { label: "Linux", where: "open a terminal (SSH is fine) and run", command: "curl -fsSL https://raw.githubusercontent.com/Hudsoonvid/Rate-Days/main/ai/setup.sh | sudo bash" },
+  windows: { label: "Windows", where: "open PowerShell and run", command: "irm https://raw.githubusercontent.com/Hudsoonvid/Rate-Days/main/ai/setup.ps1 | iex" },
+} as const;
+type Platform = keyof typeof SETUP;
 
 export function SettingsScreen() {
   const store = useStore();
@@ -207,6 +211,8 @@ function AiCard() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [help, setHelp] = useState(false);
+  const [platform, setPlatform] = useState<Platform>("linux");
+  const setup = SETUP[platform];
   const connected = Boolean(s.localUrl && s.localModel);
   const warning = url.trim() ? mixedContentWarning(normalizeServerUrl(url), window.location.protocol) : null;
 
@@ -226,8 +232,8 @@ function AiCard() {
 
   const copyCommand = async () => {
     try {
-      await navigator.clipboard.writeText(SETUP_COMMAND);
-      toast("Copied — paste it into PowerShell on that computer");
+      await navigator.clipboard.writeText(setup.command);
+      toast("Copied — run it on that computer");
     } catch {
       toast("Couldn't copy; select the command and copy it manually");
     }
@@ -294,12 +300,19 @@ function AiCard() {
               <ol className="small muted" style={{ margin: 0, paddingLeft: 18, lineHeight: 1.6 }}>
                 <li>
                   Install <a href="https://tailscale.com/download" target="_blank" rel="noreferrer" style={{ color: "var(--link)" }}>Tailscale</a> on
-                  this phone and on a Windows PC with a good graphics card, and sign in to both.
+                  this phone and on the computer that will run the AI (one with a good graphics card), and sign in to both.
                 </li>
                 <li>
-                  On the PC, open PowerShell and run:
+                  <div style={{ margin: "4px 0 8px" }}>
+                    <Segmented
+                      value={platform}
+                      onChange={setPlatform}
+                      options={(Object.keys(SETUP) as Platform[]).map((k) => ({ value: k, label: SETUP[k].label }))}
+                    />
+                  </div>
+                  On that computer, {setup.where}:
                   <code className="tiny" style={{ display: "block", wordBreak: "break-all", color: "#c7c7cc", margin: "6px 0", lineHeight: 1.5 }}>
-                    {SETUP_COMMAND}
+                    {setup.command}
                   </code>
                   <button className="btn small" onClick={copyCommand}>
                     <Copy size={14} /> Copy
